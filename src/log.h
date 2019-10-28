@@ -170,6 +170,8 @@ class PrintExpr {
 #endif
 
 
+// undefine assert since it may be defined in auto-included header
+#undef assert
 #ifndef NASSERT
 #define assert(expr) \
 if (unlikely(!(expr))) { \

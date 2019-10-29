@@ -70,8 +70,9 @@ PinCmd::PinCmd(Config* conf, const char* configFile, const char* outputDir, uint
 
     if (PIN_PRODUCT_VERSION_MAJOR <= 2 && LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0)
         && std::find(args.begin(), args.end(), "-injection") == args.end()) {
-      args.push_back("-injection");
-      args.push_back("parent");
+      //args.push_back("-injection");
+      //args.push_back("child");
+      args.push_back("-ifeellucky");
     }
 
     //Load tool

@@ -252,8 +252,9 @@ BaseCache* BuildCacheBank(Config& config, const string& prefix, g_string& name, 
 
     //Latency
     uint32_t latency = config.get<uint32_t>(prefix + "latency", 10);
+    uint32_t invLatency = config.get<uint32_t>(prefix + "invLatency", 10);
     uint32_t accLat = (isTerminal)? 0 : latency; //terminal caches has no access latency b/c it is assumed accLat is hidden by the pipeline
-    uint32_t invLat = latency;
+    uint32_t invLat = invLatency;
 
     // Inclusion?
     bool nonInclusiveHack = config.get<bool>(prefix + "nonInclusiveHack", false);

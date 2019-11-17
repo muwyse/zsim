@@ -152,7 +152,7 @@ uint64_t TimingCache::access(MemReq& req) {
         // At this point we have all the info we need to hammer out the timing record
         TimingRecord tr = {req.lineAddr << lineBits, req.cycle, respCycle, req.type, nullptr, nullptr}; //note the end event is the response, not the wback
 
-        if (getDoneCycle - req.cycle == accLat) {
+        if (getDoneCycle - req.cycle == accLat + cc->getCohDirLat()) {
             // Hit
             assert(!writebackRecord.isValid());
             assert(!accessRecord.isValid());
@@ -166,9 +166,9 @@ uint64_t TimingCache::access(MemReq& req) {
             // Miss events:
             // MissStart (does high-prio lookup) -> getEvent || evictionEvent || replEvent (if needed) -> MissWriteback
 
-            MissStartEvent* mse = new (evRec) MissStartEvent(this, accLat, domain);
+            MissStartEvent* mse = new (evRec) MissStartEvent(this, accLat+cc->getCohDirLat(), domain);
             MissResponseEvent* mre = new (evRec) MissResponseEvent(this, mse, domain);
-            MissWritebackEvent* mwe = new (evRec) MissWritebackEvent(this, mse, accLat, domain);
+            MissWritebackEvent* mwe = new (evRec) MissWritebackEvent(this, mse, accLat+cc->getCohDirLat(), domain);
 
             mse->setMinStartCycle(req.cycle);
             mre->setMinStartCycle(getDoneCycle);
@@ -211,7 +211,7 @@ uint64_t TimingCache::access(MemReq& req) {
             };
 
             // Get path
-            connect(accessRecord.isValid()? &accessRecord : nullptr, mse, mre, req.cycle + accLat, getDoneCycle);
+            connect(accessRecord.isValid()? &accessRecord : nullptr, mse, mre, req.cycle + accLat + cc->getCohDirLat(), getDoneCycle);
             mre->addChild(mwe, evRec);
 
             // Eviction path

@@ -242,6 +242,8 @@ uint64_t MESITopCC::sendInvalidates(Address lineAddr, uint32_t lineId, InvType t
             assert(e->numSharers == 1);
             e->exclusive = false;
         }
+        // add latency per invalidation sent
+        maxCycle += (invCmdLat * sentInvs);
     }
     return maxCycle;
 }
@@ -291,6 +293,7 @@ uint64_t MESITopCC::processAccess(Address lineAddr, uint32_t lineId, AccessType 
 
                 if (e->isExclusive()) {
                     //Downgrade the exclusive sharer
+                    // TODO: [MW]: if block is exclusive, shouldn't message be FWD?
                     respCycle = sendInvalidates(lineAddr, lineId, INVX, inducedWriteback, cycle, srcId);
                 }
 

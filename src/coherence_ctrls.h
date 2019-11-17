@@ -59,6 +59,9 @@ class CC : public GlobAlloc {
         //Repl policy interface
         virtual uint32_t numSharers(uint32_t lineId) = 0;
         virtual bool isValid(uint32_t lineId) = 0;
+
+        //Timing methods
+        virtual uint32_t getCohDirLat() = 0;
 };
 
 
@@ -203,13 +206,14 @@ class MESITopCC : public GlobAlloc {
         uint32_t numLines;
 
         bool nonInclusiveHack;
+        uint32_t invCmdLat;
 
         PAD();
         lock_t ccLock;
         PAD();
 
     public:
-        MESITopCC(uint32_t _numLines, bool _nonInclusiveHack) : numLines(_numLines), nonInclusiveHack(_nonInclusiveHack) {
+        MESITopCC(uint32_t _numLines, bool _nonInclusiveHack, uint32_t _invCmdLat) : numLines(_numLines), nonInclusiveHack(_nonInclusiveHack), invCmdLat(_invCmdLat) {
             array = gm_calloc<Entry>(numLines);
             for (uint32_t i = 0; i < numLines; i++) {
                 array[i].clear();
@@ -281,11 +285,13 @@ class MESICC : public CC {
         uint32_t numLines;
         bool nonInclusiveHack;
         g_string name;
+        uint32_t invCmdLat;
+        uint32_t cohDirLat;
 
     public:
         //Initialization
-        MESICC(uint32_t _numLines, bool _nonInclusiveHack, g_string& _name) : tcc(nullptr), bcc(nullptr),
-            numLines(_numLines), nonInclusiveHack(_nonInclusiveHack), name(_name) {}
+        MESICC(uint32_t _numLines, bool _nonInclusiveHack, g_string& _name, uint32_t _invCmdLat, uint32_t _cohDirLat) : tcc(nullptr), bcc(nullptr),
+            numLines(_numLines), nonInclusiveHack(_nonInclusiveHack), name(_name), invCmdLat(_invCmdLat), cohDirLat(_cohDirLat) {}
 
         void setParents(uint32_t childId, const g_vector<MemObject*>& parents, Network* network) {
             bcc = new MESIBottomCC(numLines, childId, nonInclusiveHack);
@@ -293,7 +299,7 @@ class MESICC : public CC {
         }
 
         void setChildren(const g_vector<BaseCache*>& children, Network* network) {
-            tcc = new MESITopCC(numLines, nonInclusiveHack);
+            tcc = new MESITopCC(numLines, nonInclusiveHack, invCmdLat);
             tcc->init(children, network, name.c_str());
         }
 
@@ -346,6 +352,9 @@ class MESICC : public CC {
 
         uint64_t processAccess(const MemReq& req, int32_t lineId, uint64_t startCycle, uint64_t* getDoneCycle = nullptr) {
             uint64_t respCycle = startCycle;
+            // add coherence directory latency
+            // this causes TimingCache::access to screw up
+            respCycle += cohDirLat;
             //Handle non-inclusive writebacks by bypassing
             //NOTE: Most of the time, these are due to evictions, so the line is not there. But the second condition can trigger in NUCA-initiated
             //invalidations. The alternative with this would be to capture these blocks, since we have space anyway. This is so rare is doesn't matter,
@@ -354,7 +363,7 @@ class MESICC : public CC {
             if (lineId == -1 || (((req.type == PUTS) || (req.type == PUTX)) && !bcc->isValid(lineId))) { //can only be a non-inclusive wback
                 assert(nonInclusiveHack);
                 assert((req.type == PUTS) || (req.type == PUTX));
-                respCycle = bcc->processNonInclusiveWriteback(req.lineAddr, req.type, startCycle, req.state, req.srcId, req.flags);
+                respCycle = bcc->processNonInclusiveWriteback(req.lineAddr, req.type, respCycle, req.state, req.srcId, req.flags);
             } else {
                 //Prefetches are side requests and get handled a bit differently
                 bool isPrefetch = req.flags & MemReq::PREFETCH;
@@ -362,7 +371,8 @@ class MESICC : public CC {
                 uint32_t flags = req.flags & ~MemReq::PREFETCH; //always clear PREFETCH, this flag cannot propagate up
 
                 //if needed, fetch line or upgrade miss from upper level
-                respCycle = bcc->processAccess(req.lineAddr, lineId, req.type, startCycle, req.srcId, flags);
+                respCycle = bcc->processAccess(req.lineAddr, lineId, req.type, respCycle, req.srcId, flags);
+                // after invoking BCC, set getDoneCycle return param, which is used to check hit/miss in TimingCache::access()
                 if (getDoneCycle) *getDoneCycle = respCycle;
                 if (!isPrefetch) { //prefetches only touch bcc; the demand request from the core will pull the line to lower level
                     //At this point, the line is in a good state w.r.t. upper levels
@@ -405,6 +415,11 @@ class MESICC : public CC {
         //Repl policy interface
         uint32_t numSharers(uint32_t lineId) {return tcc->numSharers(lineId);}
         bool isValid(uint32_t lineId) {return bcc->isValid(lineId);}
+
+        uint32_t getCohDirLat() {
+          return cohDirLat;
+        }
+
 };
 
 // Terminal CC, i.e., without children --- accepts GETS/X, but not PUTS/X
@@ -493,6 +508,10 @@ class MESITerminalCC : public CC {
         //Repl policy interface
         uint32_t numSharers(uint32_t lineId) {return 0;} //no sharers
         bool isValid(uint32_t lineId) {return bcc->isValid(lineId);}
+
+        uint32_t getCohDirLat() {
+          return 0;
+        }
 };
 
 #endif  // COHERENCE_CTRLS_H_
